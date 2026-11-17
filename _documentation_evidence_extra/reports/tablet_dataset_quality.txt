@@ -1,0 +1,47 @@
+PHARMASIGHT AI - DATASET QUALITY AUDIT
+======================================
+Images: 101
+Normal: 81
+Chipped: 20
+Unflagged images: 67
+Flagged images: 34
+
+Flagged filenames:
+tablet_0009.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0011.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0012.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0013.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0014.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0015.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0021.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0022.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0023.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0024.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0025.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0026.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0027.jpg: VERY_SMALL_BOX
+tablet_0038.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0039.jpg: VERY_SMALL_BOX
+tablet_0042.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0043.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0047.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0062.jpg: VERY_SMALL_BOX
+tablet_0063.jpg: VERY_SMALL_BOX
+tablet_0072.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0077.jpg: VERY_SMALL_BOX
+tablet_0079.jpg: VERY_SMALL_BOX
+tablet_0081.jpg: VERY_SMALL_BOX
+tablet_0083.jpg: VERY_SMALL_BOX
+tablet_0087.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0088.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0091.jpg: VERY_SMALL_BOX
+tablet_0092.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0093.jpg: VERY_SMALL_BOX
+tablet_0094.jpg: VERY_SMALL_BOX
+tablet_0095.jpg: VERY_SMALL_BOX;VERY_SMALL_BOX_AREA
+tablet_0099.jpg: VERY_SMALL_BOX
+tablet_0100.jpg: VERY_SMALL_BOX
+
+Important:
+Automated checks cannot confirm whether a tablet is genuinely chipped.
+Every flagged box and all chipped labels still require visual inspection.

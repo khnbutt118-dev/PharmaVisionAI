@@ -1,0 +1,16 @@
+source,split,label,defect_type,image_count
+PharmaVision,test,defective,unresolved,100
+PharmaVision,test,normal,none,100
+PharmaVision,train,defective,unresolved,190
+PharmaVision,train,normal,none,190
+PharmaVision,validation,defective,unresolved,30
+PharmaVision,validation,normal,none,30
+PillQC,test,defective,chipping,6
+PillQC,test,defective,contamination,21
+PillQC,test,normal,none,23
+PillQC,train,defective,chipping,30
+PillQC,train,defective,contamination,96
+PillQC,train,normal,none,103
+PillQC,validation,defective,chipping,7
+PillQC,validation,defective,contamination,21
+PillQC,validation,normal,none,23

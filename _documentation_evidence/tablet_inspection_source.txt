@@ -1,0 +1,529 @@
+﻿from __future__ import annotations
+
+import csv
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import cv2
+import numpy as np
+import torch
+import torch.nn as nn
+from PIL import Image
+from torchvision import models, transforms
+from ultralytics import YOLO
+
+
+# ============================================================
+# PHARMASIGHT AI - LIVE TABLET INSPECTION
+# ============================================================
+
+ROOT = Path(__file__).resolve().parents[2]
+
+DETECTOR_PATH = (
+    ROOT / "runs" / "tablet_detection" /
+    "tablet_yolov8n_pilot" / "weights" / "best.pt"
+)
+
+CLASSIFIER_PATH = ROOT / "models" / "combined_binary" / "best_model.pth"
+
+CAMERA_INDEX = 0
+YOLO_IMAGE_SIZE = 640
+YOLO_CONFIDENCE = 0.25
+
+# Expand the detector box by 20% on each side.
+ROI_PADDING = 0.20
+
+REVIEW_LOW = 0.40
+REVIEW_HIGH = 0.60
+
+NORMAL_INDEX = 0
+DEFECTIVE_INDEX = 1
+
+OUTPUT_DIR = ROOT / "reports" / "live_inspection"
+HISTORY_CSV = OUTPUT_DIR / "inspection_history.csv"
+
+DEVICE = torch.device("cpu")
+
+
+def extract_classifier_weights(checkpoint: Any):
+    saved_model = None
+    state_dict = None
+    class_names = ["normal", "defective"]
+
+    if isinstance(checkpoint, nn.Module):
+        saved_model = checkpoint
+
+    elif isinstance(checkpoint, dict):
+        raw_names = checkpoint.get("class_names")
+
+        if isinstance(raw_names, (list, tuple)) and len(raw_names) == 2:
+            class_names = [str(x).lower() for x in raw_names]
+
+        for key in ("model_state_dict", "state_dict", "model", "weights"):
+            candidate = checkpoint.get(key)
+
+            if isinstance(candidate, nn.Module):
+                saved_model = candidate
+                break
+
+            if isinstance(candidate, dict):
+                state_dict = candidate
+                break
+
+        if state_dict is None and saved_model is None:
+            tensor_items = {
+                k: v for k, v in checkpoint.items()
+                if isinstance(k, str) and torch.is_tensor(v)
+            }
+
+            if tensor_items:
+                state_dict = tensor_items
+
+    if saved_model is not None:
+        return saved_model, {}, class_names
+
+    if not isinstance(state_dict, dict):
+        raise RuntimeError(
+            "Could not find classifier weights in the checkpoint."
+        )
+
+    cleaned = dict(state_dict)
+
+    for prefix in ("module.", "model."):
+        if cleaned and all(str(k).startswith(prefix) for k in cleaned):
+            cleaned = {
+                str(k)[len(prefix):]: v
+                for k, v in cleaned.items()
+            }
+
+    return None, cleaned, class_names
+
+
+def load_classifier():
+    if not CLASSIFIER_PATH.is_file():
+        raise FileNotFoundError(
+            f"Classifier checkpoint not found:\n{CLASSIFIER_PATH}"
+        )
+
+    print(f"Loading classifier: {CLASSIFIER_PATH}")
+
+    checkpoint = torch.load(
+        CLASSIFIER_PATH,
+        map_location="cpu",
+        weights_only=False
+    )
+
+    saved_model, state_dict, class_names = extract_classifier_weights(
+        checkpoint
+    )
+
+    if saved_model is not None:
+        classifier = saved_model
+
+    else:
+        classifier = models.resnet18(weights=None)
+        classifier.fc = nn.Linear(classifier.fc.in_features, 2)
+
+        try:
+            classifier.load_state_dict(state_dict, strict=True)
+
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "Classifier checkpoint does not match the expected "
+                "ResNet18 architecture.\n"
+                "Please send this complete error:\n"
+                f"{exc}"
+            ) from exc
+
+    classifier.to(DEVICE)
+    classifier.eval()
+
+    normalized_names = [name.strip().lower() for name in class_names]
+
+    defective_index = DEFECTIVE_INDEX
+
+    if "defective" in normalized_names:
+        defective_index = normalized_names.index("defective")
+
+    preprocess = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+    ])
+
+    return classifier, preprocess, defective_index
+
+
+def classify_crop(crop, classifier, preprocess, defective_index):
+    if crop.size == 0:
+        return "REVIEW REQUIRED", 0.5, 0.0
+
+    rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(rgb)
+
+    tensor = preprocess(pil_image).unsqueeze(0).to(DEVICE)
+
+    with torch.inference_mode():
+        logits = classifier(tensor)
+        probabilities = torch.softmax(logits, dim=1)[0]
+
+    p_defective = float(probabilities[defective_index].item())
+
+    confidence = max(p_defective, 1.0 - p_defective)
+
+    if REVIEW_LOW <= p_defective <= REVIEW_HIGH:
+        label = "REVIEW REQUIRED"
+
+    elif p_defective > REVIEW_HIGH:
+        label = "MODEL: DEFECTIVE"
+
+    else:
+        label = "MODEL: NORMAL - VERIFY"
+
+    return label, p_defective, confidence
+
+
+def expand_box(x1, y1, x2, y2, frame_width, frame_height, padding):
+    width = max(1, x2 - x1)
+    height = max(1, y2 - y1)
+
+    pad_x = int(round(width * padding))
+    pad_y = int(round(height * padding))
+
+    return (
+        max(0, x1 - pad_x),
+        max(0, y1 - pad_y),
+        min(frame_width - 1, x2 + pad_x),
+        min(frame_height - 1, y2 + pad_y)
+    )
+
+
+def append_history(rows, snapshot_path):
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    fieldnames = [
+        "timestamp",
+        "filename",
+        "model_result",
+        "p_defective",
+        "classifier_confidence",
+        "yolo_confidence",
+        "raw_box_xyxy",
+        "padded_box_xyxy",
+        "snapshot"
+    ]
+
+    file_exists = HISTORY_CSV.exists()
+
+    with HISTORY_CSV.open(
+        "a",
+        newline="",
+        encoding="utf-8"
+    ) as handle:
+
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+
+        if not file_exists:
+            writer.writeheader()
+
+        for row in rows:
+            writer.writerow({
+                **row,
+                "snapshot": str(snapshot_path)
+            })
+
+
+def main():
+    if not DETECTOR_PATH.is_file():
+        raise FileNotFoundError(
+            f"Tablet detector checkpoint not found:\n{DETECTOR_PATH}"
+        )
+
+    torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
+
+    print("=" * 64)
+    print("PHARMASIGHT AI - LIVE TABLET INSPECTION")
+    print("=" * 64)
+
+    print(f"Loading tablet detector: {DETECTOR_PATH}")
+
+    detector = YOLO(str(DETECTOR_PATH))
+
+    classifier, preprocess, defective_index = load_classifier()
+
+    print("Opening webcam...")
+
+    camera = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
+
+    if not camera.isOpened():
+        camera.release()
+
+        raise RuntimeError(
+            f"Could not open webcam index {CAMERA_INDEX}. "
+            "Try CAMERA_INDEX = 1 near the top of this file."
+        )
+
+    camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    window_name = "PharmaSight AI - Live Tablet Inspection"
+
+    print("\nLive inspection started.")
+    print("GREEN BOX = expanded classifier crop")
+    print("ORANGE BOX = original YOLO detection")
+    print("Press S to save an inspection snapshot.")
+    print("Press Q or ESC to quit.\n")
+
+    try:
+        while True:
+            success, frame = camera.read()
+
+            if not success or frame is None:
+                print("Warning: webcam frame could not be read.")
+                break
+
+            frame_height, frame_width = frame.shape[:2]
+
+            current_records = []
+
+            detections = detector.predict(
+                source=frame,
+                imgsz=YOLO_IMAGE_SIZE,
+                conf=YOLO_CONFIDENCE,
+                device="cpu",
+                max_det=10,
+                verbose=False
+            )
+
+            result = detections[0]
+            boxes = result.boxes
+
+            detection_count = 0
+
+            if boxes is not None and len(boxes) > 0:
+
+                xyxy_list = boxes.xyxy.cpu().numpy()
+                yolo_confidences = boxes.conf.cpu().numpy()
+
+                for box_values, yolo_conf in zip(
+                    xyxy_list,
+                    yolo_confidences
+                ):
+
+                    x1, y1, x2, y2 = [
+                        int(round(float(v)))
+                        for v in box_values
+                    ]
+
+                    x1 = max(0, min(frame_width - 1, x1))
+                    y1 = max(0, min(frame_height - 1, y1))
+                    x2 = max(0, min(frame_width, x2))
+                    y2 = max(0, min(frame_height, y2))
+
+                    if x2 <= x1 or y2 <= y1:
+                        continue
+
+                    px1, py1, px2, py2 = expand_box(
+                        x1, y1, x2, y2,
+                        frame_width, frame_height,
+                        ROI_PADDING
+                    )
+
+                    crop = frame[py1:py2, px1:px2]
+
+                    label, p_defective, class_confidence = classify_crop(
+                        crop,
+                        classifier,
+                        preprocess,
+                        defective_index
+                    )
+
+                    detection_count += 1
+
+                    # Orange: original detector box.
+                    cv2.rectangle(
+                        frame,
+                        (x1, y1),
+                        (x2, y2),
+                        (0, 165, 255),
+                        2
+                    )
+
+                    # Green: expanded classifier crop.
+                    cv2.rectangle(
+                        frame,
+                        (px1, py1),
+                        (px2, py2),
+                        (0, 255, 0),
+                        2
+                    )
+
+                    label_text = (
+                        f"{label} | P(defect): {p_defective:.1%} "
+                        f"| YOLO: {float(yolo_conf):.0%}"
+                    )
+
+                    text_y = max(25, py1 - 10)
+
+                    text_color = (
+                        (0, 255, 0)
+                        if label == "MODEL: NORMAL - VERIFY"
+                        else (0, 0, 255)
+                    )
+
+                    cv2.putText(
+                        frame,
+                        label_text,
+                        (px1, text_y),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.52,
+                        text_color,
+                        2,
+                        cv2.LINE_AA
+                    )
+
+                    cv2.putText(
+                        frame,
+                        f"Expanded crop ({int(ROI_PADDING * 100)}% margin)",
+                        (px1, min(frame_height - 8, py2 + 20)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (255, 255, 255),
+                        1,
+                        cv2.LINE_AA
+                    )
+
+                    current_records.append({
+                        "timestamp": datetime.now().isoformat(
+                            timespec="seconds"
+                        ),
+                        "filename": "",
+                        "model_result": label,
+                        "p_defective": round(p_defective, 6),
+                        "classifier_confidence": round(
+                            class_confidence, 6
+                        ),
+                        "yolo_confidence": round(
+                            float(yolo_conf), 6
+                        ),
+                        "raw_box_xyxy": f"{x1},{y1},{x2},{y2}",
+                        "padded_box_xyxy": (
+                            f"{px1},{py1},{px2},{py2}"
+                        )
+                    })
+
+            # Header.
+            cv2.rectangle(
+                frame,
+                (0, 0),
+                (frame_width, 72),
+                (25, 25, 25),
+                -1
+            )
+
+            cv2.putText(
+                frame,
+                "PHARMASIGHT AI | LIVE TABLET INSPECTION",
+                (15, 27),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.68,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA
+            )
+
+            cv2.putText(
+                frame,
+                "Green: expanded crop | Orange: detector box | S: save | Q: quit",
+                (15, 55),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (220, 220, 220),
+                1,
+                cv2.LINE_AA
+            )
+
+            if detection_count == 0:
+                cv2.putText(
+                    frame,
+                    "No tablet detected - adjust position or lighting",
+                    (20, 110),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.65,
+                    (0, 0, 255),
+                    2,
+                    cv2.LINE_AA
+                )
+
+            cv2.imshow(window_name, frame)
+
+            key = cv2.waitKey(1) & 0xFF
+
+            if key == ord("s") and current_records:
+
+                stamp = datetime.now().strftime(
+                    "%Y%m%d_%H%M%S_%f"
+                )
+
+                filename = f"inspection_{stamp}.jpg"
+                snapshot_path = OUTPUT_DIR / filename
+
+                saved = cv2.imwrite(
+                    str(snapshot_path),
+                    frame
+                )
+
+                if saved:
+
+                    for row in current_records:
+                        row["filename"] = filename
+
+                    append_history(
+                        current_records,
+                        snapshot_path
+                    )
+
+                    print(
+                        f"Saved snapshot and {len(current_records)} "
+                        f"inspection record(s): {snapshot_path}"
+                    )
+
+                else:
+                    print("Could not save snapshot.")
+
+            if key in (ord("q"), 27):
+                break
+
+    finally:
+        camera.release()
+        cv2.destroyAllWindows()
+
+    print("\nLive inspection stopped.")
+    print(f"Inspection history: {HISTORY_CSV}")
+    print(
+        "Reminder: this is a research prototype. "
+        "Verify every tablet result manually."
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+
+    except KeyboardInterrupt:
+        print("\nStopped by user.")
+
+    except Exception as exc:
+        print("\nLIVE INSPECTION ERROR")
+        print(exc)
+        sys.exit(1)
+

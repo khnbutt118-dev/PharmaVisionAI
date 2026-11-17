@@ -1,0 +1,9 @@
+comparison,feature,roc_auc,separation_strength
+normal_vs_dirt,center_brightness,0.1127,0.8873
+normal_vs_dirt,border_brightness,0.2997,0.7003
+normal_vs_dirt,center_saturation,0.6245,0.6245
+normal_vs_dirt,border_saturation,0.3347,0.6653
+normal_vs_chip,center_brightness,0.0401,0.9599
+normal_vs_chip,border_brightness,0.297,0.703
+normal_vs_chip,center_saturation,0.9995,0.9995
+normal_vs_chip,border_saturation,0.004,0.996

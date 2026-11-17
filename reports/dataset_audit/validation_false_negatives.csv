@@ -1,0 +1,3 @@
+image_path,actual_label,defective_probability,predicted_label,brightness,contrast,saturation,aspect_ratio
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\defective\25.jpeg,defective,0.0001576634094817,normal,138.26172,43.441696,40.116676,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\defective\27.jpeg,defective,0.0200248211622238,normal,100.83862,86.63477,10.130927,1.0

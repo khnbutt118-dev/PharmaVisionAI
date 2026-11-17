@@ -1,0 +1,6 @@
+path: "C:/Users/AFZAL COMPUTERS/OneDrive/Desktop/PharmaSight-AI-Starter-v2/PharmaSight-AI/datasets/tablet_detection/prepared"
+train: images/train
+val: images/validation
+test: images/test
+names:
+  0: tablet

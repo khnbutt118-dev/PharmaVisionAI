@@ -1,0 +1,4 @@
+,predicted_normal,predicted_contamination,predicted_chipping
+actual_normal,23,0,0
+actual_contamination,0,21,0
+actual_chipping,0,0,6

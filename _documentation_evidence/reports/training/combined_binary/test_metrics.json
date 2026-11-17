@@ -1,0 +1,50 @@
+{
+    "best_epoch": 4,
+    "best_validation_macro_f1": 0.9095501955671448,
+    "overall_test_metrics": {
+        "accuracy": 0.844,
+        "balanced_accuracy": 0.8455604634786505,
+        "macro_f1": 0.8428914420148568,
+        "defective_precision": 0.9313725490196079,
+        "defective_recall": 0.7480314960629921,
+        "normal_specificity": 0.943089430894309,
+        "defective_false_negative_rate": 0.25196850393700787,
+        "true_negative": 116,
+        "false_positive": 7,
+        "false_negative": 32,
+        "true_positive": 95
+    },
+    "test_metrics_by_source": {
+        "PharmaVision": {
+            "accuracy": 0.805,
+            "balanced_accuracy": 0.805,
+            "macro_f1": 0.8019047619047619,
+            "defective_precision": 0.9066666666666666,
+            "defective_recall": 0.68,
+            "normal_specificity": 0.93,
+            "defective_false_negative_rate": 0.32,
+            "true_negative": 93,
+            "false_positive": 7,
+            "false_negative": 32,
+            "true_positive": 68
+        },
+        "PillQC": {
+            "accuracy": 1.0,
+            "balanced_accuracy": 1.0,
+            "macro_f1": 1.0,
+            "defective_precision": 1.0,
+            "defective_recall": 1.0,
+            "normal_specificity": 1.0,
+            "defective_false_negative_rate": 0.0,
+            "true_negative": 23,
+            "false_positive": 0,
+            "false_negative": 0,
+            "true_positive": 27
+        }
+    },
+    "training_images": 609,
+    "validation_images": 111,
+    "test_images": 250,
+    "checkpoint": "models\\combined_binary\\best_model.pth",
+    "warning": "Research prototype only. Results on these datasets do not establish performance on unseen medicine types or production inspection conditions."
+}

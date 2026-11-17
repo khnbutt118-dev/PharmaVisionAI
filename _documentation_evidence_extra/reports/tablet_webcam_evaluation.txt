@@ -1,0 +1,25 @@
+PHARMASIGHT AI - WEBCAM TABLET BASELINE
+========================================
+Images evaluated: 101
+Decisive predictions: 94
+Review/no-detection cases: 7
+Coverage: 0.9307
+Accuracy among decisive predictions: 0.7553
+
+Confusion matrix (decisive predictions):
+TN=54  FP=21
+FN=2  TP=17
+
+Defective precision: 0.4474
+Defective recall: 0.8947
+Normal specificity: 0.7200
+Defective F1: 0.5965
+
+Thresholds:
+Normal: P(defective) < 0.4
+Review: 0.4 <= P(defective) <= 0.6
+Defective: P(defective) > 0.6
+
+NOTE:
+This is a small webcam dataset evaluation, not an independent
+clinical validation. Chipped examples are from one tablet type.

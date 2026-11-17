@@ -1,0 +1,8 @@
+path: C:/Users/AFZAL COMPUTERS/OneDrive/Desktop/PharmaSight-AI-Starter-v2/PharmaSight-AI/datasets/ppe_mask/prepared
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: with_mask
+  1: without_mask
+  2: mask_weared_incorrect

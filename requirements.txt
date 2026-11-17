@@ -1,0 +1,16 @@
+# Core (Phase 1 and 2)
+torch
+torchvision
+opencv-python
+numpy
+pandas
+matplotlib
+scikit-learn
+jupyter
+notebook
+albumentations
+pyyaml
+pillow
+tqdm
+pytest
+streamlit

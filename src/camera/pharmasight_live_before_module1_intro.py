@@ -1,0 +1,727 @@
+from pathlib import Path
+import sys
+import time
+import math
+import subprocess
+from datetime import datetime
+
+import cv2
+import numpy as np
+import mediapipe as mp
+from PIL import Image
+from ultralytics import YOLO
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+W, H = 960, 540
+DEVICE = "cpu"
+
+GESTURE_MODEL = ROOT / "src/hand_gesture/assets/hand_landmarker.task"
+TABLET_YOLO = ROOT / "runs/tablet_detection/tablet_yolov8n_pilot/weights/best.pt"
+TABLET_CLASSIFIER = ROOT / "models/combined_binary/best_model.pth"
+PPE_YOLO = ROOT / "runs/ppe_mask/mask_yolov8n_full/weights/best.pt"
+
+REPORT_DIR = ROOT / "reports/unified_live"
+REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def check_file(path, label):
+    if not path.is_file():
+        raise FileNotFoundError(f"{label} not found: {path}")
+
+
+def hud(frame, mode, status):
+    out = frame.copy()
+    cv2.rectangle(out, (0, 0), (W, 38), (18, 18, 35), -1)
+    cv2.rectangle(out, (0, H - 30), (W, H), (18, 18, 35), -1)
+    cv2.putText(out, f"PHARMA VISION AI | MODE: {mode}",
+                (12, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.58,
+                (220, 245, 255), 1, cv2.LINE_AA)
+    cv2.putText(out,
+                "D Draw | V Aspirin | K Capsule | P PPE | T Tablet | U Undo | R Redo | C Clear | S Save | Q Quit",
+                (12, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.34,
+                (230, 230, 240), 1, cv2.LINE_AA)
+    return out
+
+
+class PharmaSightLive:
+    def __init__(self):
+        for path, label in [
+            (GESTURE_MODEL, "Gesture model"),
+            (TABLET_YOLO, "Tablet detector"),
+            (TABLET_CLASSIFIER, "Tablet classifier"),
+            (PPE_YOLO, "PPE detector"),
+        ]:
+            check_file(path, label)
+
+        # The main and PPE projects both have a package named "src".
+        import src
+        ppe_src = ROOT / "PharmaVision-Module2-PPE-Mask" / "src"
+        if str(ppe_src) not in src.__path__:
+            src.__path__.append(str(ppe_src))
+
+        from src.hand_gesture import air_canvas_live as gesture
+        from src.camera import live_tablet_inspection as tablet_model
+        from src.ppe_mask.mask_module import MaskComplianceModule
+
+        self.g = gesture
+        self.tablet_model = tablet_model
+        self.tablet_detector = YOLO(str(TABLET_YOLO))
+        (
+            self.tablet_classifier,
+            self.tablet_preprocess,
+            self.tablet_defective_index
+        ) = tablet_model.load_classifier()
+        self.ppe = MaskComplianceModule(
+            weights=PPE_YOLO, conf=0.25, imgsz=640, device=DEVICE
+        )
+
+        options = mp.tasks.vision.HandLandmarkerOptions(
+            base_options=mp.tasks.BaseOptions(
+                model_asset_path=str(GESTURE_MODEL)
+            ),
+            running_mode=mp.tasks.vision.RunningMode.VIDEO,
+            num_hands=2,
+            min_hand_detection_confidence=0.55,
+            min_hand_presence_confidence=0.55,
+            min_tracking_confidence=0.55,
+        )
+        self.tracker = mp.tasks.vision.HandLandmarker.create_from_options(options)
+
+        self.mode = "DRAW"
+        self.status = "Ready | Show your hand"
+        self.canvas = np.zeros((H, W, 3), dtype=np.uint8)
+        self.particles = self.g.ParticleSystem()
+        self.undo_stack = []
+        self.redo_stack = []
+        self.previous_gesture = "MOVE"
+        self.previous_point = None
+        self.stroke_points = []
+
+        self.yaw = 0.0
+        self.pitch = 0.0
+        self.mol_scale = 1.0
+        self.mol_center = [W // 2, H // 2 + 5]
+        self.previous_gap = None
+        self.previous_index = None
+
+        self.capsule_center = [W // 2, H // 2 + 5]
+        self.capsule_open = 0.0
+        self.capsule_target = 0.0
+        self.last_capsule_pinch = False
+
+        self.frame_number = 0
+        self.cached_tablet_frame = None
+        self.cached_ppe_frame = None
+        self.last_display = None
+        self.last_tablet_status = "Present a tablet to the camera"
+        self.last_ppe_status = "PPE mode ready"
+        self.ppe_voice_last_state = None
+        self.ppe_voice_process = None
+
+    def snapshot(self):
+        self.undo_stack.append(self.canvas.copy())
+        if len(self.undo_stack) > 30:
+            self.undo_stack.pop(0)
+        self.redo_stack.clear()
+
+    def set_mode(self, mode):
+        self.mode = mode
+        if mode == "PPE":
+            self.ppe_voice_last_state = None
+        self.previous_point = None
+        self.previous_index = None
+        self.previous_gap = None
+        self.stroke_points = []
+        self.previous_gesture = "MOVE"
+        self.last_capsule_pinch = False
+
+        labels = {
+            "DRAW": "Air drawing | Index finger draws, pinch erases",
+            "MOLECULE": "Aspirin molecule | Move index to rotate and position, pinch to zoom",
+            "CAPSULE": "Capsule explorer | Move with index, pinch to open",
+            "PPE": "PPE awareness | Face the camera",
+            "TABLET": "Tablet inspection | Present a tablet clearly",
+        }
+        self.status = labels[mode]
+
+    def undo(self):
+        if self.undo_stack:
+            self.redo_stack.append(self.canvas.copy())
+            self.canvas = self.undo_stack.pop()
+            self.status = "Undo completed"
+
+    def redo(self):
+        if self.redo_stack:
+            self.undo_stack.append(self.canvas.copy())
+            self.canvas = self.redo_stack.pop()
+            self.status = "Redo completed"
+
+    def clear(self):
+        if np.any(self.canvas):
+            self.snapshot()
+            self.canvas[:] = 0
+        self.status = "Drawing canvas cleared"
+
+    def process_gesture(self, frame, timestamp_ms):
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = self.tracker.detect_for_video(image, timestamp_ms)
+        hands = result.hand_landmarks or []
+
+        gesture_names = []
+        primary = None
+
+        for i, landmarks in enumerate(hands):
+            gesture = self.g.classify(landmarks)
+            raw_label = "UNKNOWN"
+            if result.handedness and i < len(result.handedness):
+                if result.handedness[i]:
+                    raw_label = result.handedness[i][0].category_name.upper()
+            label = {"LEFT": "RIGHT", "RIGHT": "LEFT"}.get(raw_label, raw_label)
+            points = self.g.draw_hand(frame, landmarks, label, gesture)
+            gesture_names.append(f"{label}: {gesture}")
+            if i == 0:
+                primary = (landmarks, points, gesture)
+
+        if primary:
+            landmarks, points, gesture = primary
+            cursor = points[8]
+            old = self.previous_gesture
+
+            if self.mode == "DRAW":
+                if gesture == "OPEN" and old != "OPEN":
+                    self.particles.burst(cursor[0], cursor[1], 42)
+                if gesture in ("TWO", "THREE", "THUMB"):
+                    color_map = {
+                        "TWO": ((0, 0, 255), "RED"),
+                        "THREE": ((139, 0, 0), "DARK BLUE"),
+                        "THUMB": ((255, 255, 255), "WHITE"),
+                    }
+                    self.g.INK, color_name = color_map[gesture]
+                    self.previous_point = None
+                    self.stroke_points = []
+                    self.status = f"Brush color: {color_name}"
+
+                elif gesture == "POINT":
+                    if old != "POINT":
+                        self.snapshot()
+                        self.stroke_points = []
+                    if self.previous_point is not None:
+                        if self.g.APP.get("neon", True):
+                            self.g.neon_line(
+                                self.canvas, self.previous_point, cursor,
+                                color=self.g.INK
+                            )
+                        else:
+                            cv2.line(self.canvas, self.previous_point, cursor,
+                                     self.g.INK, 5, cv2.LINE_AA)
+                    self.stroke_points.append(cursor)
+                    self.previous_point = cursor
+
+                elif gesture == "PINCH":
+                    if old != "PINCH":
+                        self.snapshot()
+                    cv2.circle(self.canvas, cursor, 26, (0, 0, 0), -1)
+                    self.previous_point = None
+                else:
+                    if old == "POINT" and self.g.APP.get("shape_snap", True):
+                        shape = self.g.detect_shape(self.stroke_points)
+                        if shape:
+                            self.g.draw_shape(self.canvas, shape, self.stroke_points)
+                    self.previous_point = None
+                    self.stroke_points = []
+
+            elif self.mode == "MOLECULE":
+                target_x = int(np.clip(cursor[0], 90, W - 90))
+                target_y = int(np.clip(cursor[1], 150, H - 90))
+                self.mol_center[0] = int(0.75 * self.mol_center[0] + 0.25 * target_x)
+                self.mol_center[1] = int(0.75 * self.mol_center[1] + 0.25 * target_y)
+
+                gap = self.g.dist2d(landmarks[4], landmarks[8]) * W
+                if self.previous_gap is not None:
+                    self.mol_scale = float(np.clip(
+                        self.mol_scale + (gap - self.previous_gap) * 0.008,
+                        0.45, 2.5
+                    ))
+                self.previous_gap = gap
+
+                if self.previous_index is not None:
+                    dx = cursor[0] - self.previous_index[0]
+                    dy = cursor[1] - self.previous_index[1]
+                    self.yaw += dx * 0.008
+                    self.pitch = float(np.clip(
+                        self.pitch + dy * 0.006, -1.3, 1.3
+                    ))
+                self.previous_index = cursor
+                self.status = f"Aspirin | Scale {self.mol_scale:.2f}x | Move hand to interact"
+
+            elif self.mode == "CAPSULE":
+                self.capsule_center[0] = int(
+                    0.85 * self.capsule_center[0] + 0.15 * cursor[0]
+                )
+                self.capsule_center[1] = int(
+                    0.85 * self.capsule_center[1] + 0.15 * cursor[1]
+                )
+                pinch = gesture == "PINCH"
+                if pinch and not self.last_capsule_pinch:
+                    self.capsule_target = 0.0 if self.capsule_target > 0.5 else 1.0
+                self.last_capsule_pinch = pinch
+                self.capsule_open += (
+                    self.capsule_target - self.capsule_open
+                ) * 0.15
+                self.status = "Capsule | Pinch to open or close"
+
+            self.previous_gesture = gesture
+        else:
+            self.previous_point = None
+            self.previous_index = None
+            self.previous_gap = None
+            self.previous_gesture = "MOVE"
+            self.last_capsule_pinch = False
+
+        if self.mode == "MOLECULE":
+            self.g.draw_aspirin(
+                frame, self.yaw, self.pitch, self.mol_scale, self.mol_center
+            )
+        elif self.mode == "CAPSULE":
+            self.g.draw_capsule(frame, self.capsule_center, self.capsule_open)
+
+        # Composite the existing air-drawing canvas over the camera image.
+        mask = np.any(self.canvas != 0, axis=2)
+        if np.any(mask):
+            blended = cv2.addWeighted(
+                frame, 0.15, self.canvas, 0.85, 0
+            )
+            frame[mask] = blended[mask]
+
+        if self.mode == "DRAW":
+            self.particles.render(frame)
+        return frame
+
+    def process_tablet(self, frame):
+        if self.frame_number % 2 == 0 or self.cached_tablet_frame is None:
+            out = frame.copy()
+            height, width = frame.shape[:2]
+            result = self.tablet_detector.predict(
+                frame, conf=0.25, imgsz=640, device=DEVICE, verbose=False
+            )[0]
+            count = 0
+
+            if result.boxes is not None:
+                for box in result.boxes:
+                    class_id = int(box.cls[0].item())
+                    if result.names.get(class_id) != "tablet":
+                        continue
+
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                    yolo_conf = float(box.conf[0].item())
+                    pad_x = int((x2 - x1) * 0.20)
+                    pad_y = int((y2 - y1) * 0.20)
+                    ax1, ay1 = max(0, x1-pad_x), max(0, y1-pad_y)
+                    ax2, ay2 = min(width, x2+pad_x), min(height, y2+pad_y)
+                    crop = frame[ay1:ay2, ax1:ax2]
+                    if crop.size == 0:
+                        continue
+
+                    pil = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
+                    predicted, p_defective, confidence = (
+                        self.tablet_model.classify_crop(
+                            crop,
+                            self.tablet_classifier,
+                            self.tablet_preprocess,
+                            self.tablet_defective_index
+                        )
+                    )
+                    review = (predicted == "REVIEW REQUIRED")
+                    color = (0, 165, 255) if review else (70, 220, 120)
+
+                    cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
+                    label = f"{predicted} {confidence:.0%}"
+                    if review:
+                        label += " | REVIEW"
+                    cv2.putText(out, label, (x1, max(55, y1-10)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2,
+                                cv2.LINE_AA)
+                    cv2.putText(out, f"Detector {yolo_conf:.0%}",
+                                (x1, min(height-8, y2+20)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                                (230, 230, 230), 1, cv2.LINE_AA)
+                    count += 1
+
+            self.last_tablet_status = (
+                f"{count} tablet(s) | AI prediction only - human verification required"
+                if count else "No tablet detected | Position one tablet in view"
+            )
+            self.cached_tablet_frame = out
+
+        self.status = self.last_tablet_status
+        return self.cached_tablet_frame.copy()
+
+    def speak_ppe_event(self, event):
+        # Play pre-generated Kokoro audio without blocking webcam processing.
+        audio_files = {
+            "NO_MASK": ROOT / "logs" / "ppe_voice" / "please_wear_mask.wav",
+            "COMPLIANT": ROOT / "logs" / "ppe_voice" / "great_job_mask.wav",
+        }
+
+        audio_path = audio_files.get(event)
+        voice_python = ROOT / ".venv_voice" / "Scripts" / "python.exe"
+        voice_script = ROOT / "src" / "voice" / "voice_assistant.py"
+
+        if not audio_path or not audio_path.is_file():
+            return
+        if not voice_python.is_file() or not voice_script.is_file():
+            return
+
+        # Do not overlap announcements.
+        if (self.ppe_voice_process is not None
+                and self.ppe_voice_process.poll() is None):
+            return
+
+        try:
+            self.ppe_voice_process = subprocess.Popen(
+                [
+                    str(voice_python),
+                    str(voice_script),
+                    "--play-file",
+                    str(audio_path),
+                ],
+                cwd=str(ROOT),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            print(f"PPE voice playback could not start: {exc}")
+
+    def process_ppe(self, frame):
+        if self.frame_number % 2 == 0 or self.cached_ppe_frame is None:
+            annotated, info = self.ppe.process(frame.copy(), draw=True)
+            self.cached_ppe_frame = annotated
+            self.last_ppe_status = str(info.get("status", "UNCERTAIN"))
+
+            status = self.last_ppe_status
+
+            if status == "NOT_COMPLIANT":
+                # Speak only for a detected no-mask condition.
+                # Incorrectly worn masks do not receive appreciation.
+                if (info.get("has_no_mask", False)
+                        and not info.get("has_incorrect", False)):
+                    if self.ppe_voice_last_state != "NO_MASK":
+                        self.ppe_voice_last_state = "NO_MASK"
+                        self.speak_ppe_event("NO_MASK")
+                else:
+                    self.ppe_voice_last_state = None
+
+            elif status == "COMPLIANT":
+                if self.ppe_voice_last_state != "COMPLIANT":
+                    self.ppe_voice_last_state = "COMPLIANT"
+                    self.speak_ppe_event("COMPLIANT")
+
+            else:
+                # UNCERTAIN and NO_FACE never produce voice announcements.
+                self.ppe_voice_last_state = None
+
+        out = self.cached_ppe_frame.copy()
+        cv2.putText(out, "PPE detection is a research awareness aid, not validated access control",
+                    (12, 62), cv2.FONT_HERSHEY_SIMPLEX, 0.43,
+                    (255, 220, 120), 1, cv2.LINE_AA)
+        self.status = f"PPE status: {self.last_ppe_status}"
+        return out
+
+    def process(self, frame, timestamp_ms):
+        self.frame_number += 1
+
+        if self.mode in ("DRAW", "MOLECULE", "CAPSULE"):
+            out = self.process_gesture(frame, timestamp_ms)
+        elif self.mode == "TABLET":
+            out = self.process_tablet(frame)
+        elif self.mode == "PPE":
+            out = self.process_ppe(frame)
+        else:
+            out = frame
+
+        self.last_display = hud(out, self.mode, self.status)
+        return self.last_display
+
+    def save(self):
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if self.mode in ("DRAW", "MOLECULE", "CAPSULE"):
+            path = REPORT_DIR / f"drawing_{stamp}.png"
+            cv2.imwrite(str(path), self.canvas)
+        elif self.last_display is not None:
+            path = REPORT_DIR / f"{self.mode.lower()}_{stamp}.jpg"
+            cv2.imwrite(str(path), self.last_display)
+        else:
+            return
+        self.status = f"Saved: {path.name}"
+        print("Saved:", path)
+
+    def key(self, key):
+        if 65 <= key <= 90:
+            key += 32
+        if key in (27, ord("q")):
+            return False
+
+        modes = {
+            ord("d"): "DRAW",
+            ord("v"): "MOLECULE",
+            ord("k"): "CAPSULE",
+            ord("p"): "PPE",
+            ord("t"): "TABLET",
+        }
+        if key in modes:
+            self.set_mode(modes[key])
+        elif key == ord("u"):
+            self.undo()
+        elif key == ord("r"):
+            self.redo()
+        elif key == ord("c"):
+            self.clear()
+        elif key == ord("s"):
+            self.save()
+        elif key == ord("e"):
+            self.g.APP["neon"] = not self.g.APP.get("neon", True)
+            self.status = f"Neon: {'ON' if self.g.APP['neon'] else 'OFF'}"
+        elif key == ord("h"):
+            self.g.APP["shape_snap"] = not self.g.APP.get("shape_snap", True)
+            self.status = f"Shape snapping: {'ON' if self.g.APP['shape_snap'] else 'OFF'}"
+        return True
+
+    def close(self):
+        try:
+            self.tracker.close()
+        except Exception:
+            pass
+
+
+
+
+
+def prepare_welcome_audio():
+    """Generate the welcome audio before the webcam opens."""
+    import subprocess
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    voice_python = root / ".venv_voice" / "Scripts" / "python.exe"
+    voice_script = root / "src" / "voice" / "voice_assistant.py"
+    log_dir = root / "logs"
+    log_dir.mkdir(exist_ok=True)
+    audio_file = log_dir / "welcome.wav"
+
+    if not voice_python.is_file() or not voice_script.is_file():
+        print("Kokoro voice environment or script was not found.")
+        return None
+
+    command = [
+        str(voice_python), str(voice_script),
+        "--text",
+        "Hello, Hassan! Welcome to your Pharma Vision AI. How can I help you today?",
+        "--voice", "af_heart",
+        "--speed", "0.96",
+        "--output", str(audio_file)
+    ]
+
+    try:
+        with open(log_dir / "voice_assistant.log", "a", encoding="utf-8") as log:
+            result = subprocess.run(
+                command, cwd=str(root), stdout=log,
+                stderr=subprocess.STDOUT, check=False
+            )
+        if result.returncode == 0 and audio_file.is_file():
+            print("Welcome audio is ready.")
+            return audio_file
+        print("Welcome audio preparation failed. Check logs/voice_assistant.log.")
+    except Exception as exc:
+        print(f"Could not prepare Kokoro welcome audio: {exc}")
+
+    return None
+
+
+def play_welcome_audio(audio_file):
+    """Start playback of the already-generated welcome audio."""
+    import subprocess
+    from pathlib import Path
+
+    if audio_file is None:
+        return None
+
+    root = Path(__file__).resolve().parents[2]
+    voice_python = root / ".venv_voice" / "Scripts" / "python.exe"
+    voice_script = root / "src" / "voice" / "voice_assistant.py"
+    log_file = open(root / "logs" / "voice_assistant.log", "a", encoding="utf-8")
+
+    try:
+        process = subprocess.Popen(
+            [str(voice_python), str(voice_script), "--play-file", str(audio_file)],
+            cwd=str(root),
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+        return process
+    except Exception as exc:
+        print(f"Kokoro playback could not start: {exc}")
+        return None
+    finally:
+        log_file.close()
+
+
+def draw_welcome_overlay(frame, elapsed=0.0):
+    """Animated welcome with a glowing cyan and purple entrance."""
+    import math
+
+    height, width = frame.shape[:2]
+
+    # Fade in, then gently pulse.
+    fade = min(1.0, max(0.0, elapsed / 1.2))
+    pulse = 0.5 + 0.5 * math.sin(elapsed * 4.0)
+    glow = int(100 + 100 * pulse)
+
+    panel_width = min(width - 40, 760)
+    panel_height = 180
+
+    x1 = (width - panel_width) // 2
+    y1 = (height - panel_height) // 2
+    x2 = x1 + panel_width
+    y2 = y1 + panel_height
+
+    # Build a separate overlay so the webcam image remains visible.
+    overlay = frame.copy()
+
+    # Soft outer glow.
+    cv2.rectangle(
+        overlay, (x1 - 5, y1 - 5), (x2 + 5, y2 + 5),
+        (glow, 40, 180), 8, cv2.LINE_AA
+    )
+    cv2.rectangle(
+        overlay, (x1, y1), (x2, y2),
+        (35, 20, 55), -1
+    )
+
+    # Blend the panel and glow into the camera frame.
+    cv2.addWeighted(overlay, 0.78 * fade, frame, 1.0 - 0.78 * fade, 0, frame)
+
+    # Animated glowing border.
+    border_color = (255, glow, 210)
+    cv2.rectangle(
+        frame, (x1, y1), (x2, y2),
+        border_color, 2, cv2.LINE_AA
+    )
+
+    # Main greeting appears first and is visually prominent.
+    greeting = "Hello, Hassan!"
+    welcome = "Welcome to your Pharma Vision AI"
+    question = "How can I help you today?"
+
+    def centered_text(text, y, scale, color, thickness):
+        text_size = cv2.getTextSize(
+            text, cv2.FONT_HERSHEY_DUPLEX, scale, thickness
+        )[0]
+        x = (width - text_size[0]) // 2
+
+        # Dark shadow gives the text a glowing, raised appearance.
+        cv2.putText(
+            frame, text, (x + 2, y + 2),
+            cv2.FONT_HERSHEY_DUPLEX, scale,
+            (100, 30, 100), thickness + 2, cv2.LINE_AA
+        )
+        cv2.putText(
+            frame, text, (x, y),
+            cv2.FONT_HERSHEY_DUPLEX, scale,
+            color, thickness, cv2.LINE_AA
+        )
+
+    centered_text(
+        greeting, y1 + 70, 1.05,
+        (255, 255, 255), 3
+    )
+    centered_text(
+        welcome, y1 + 115, 0.58,
+        (255, 225, 120), 2
+    )
+    centered_text(
+        question, y1 + 150, 0.55,
+        (220, 240, 255), 1
+    )
+
+
+def main():
+    app = None
+    camera = None
+    window = "PharmaSight AI - Unified Live"
+
+    try:
+        print("Loading PharmaSight AI components...")
+        app = PharmaSightLive()
+        print("All components loaded.")
+        print("Preparing welcome voice before opening webcam...")
+        welcome_audio = prepare_welcome_audio()
+        print("Opening webcam...")
+
+        camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        if not camera.isOpened():
+            camera.release()
+            camera = cv2.VideoCapture(0)
+        if not camera.isOpened():
+            raise RuntimeError("Could not open webcam. Check camera permissions.")
+
+        camera.set(cv2.CAP_PROP_FRAME_WIDTH, W)
+        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, H)
+        cv2.namedWindow(window, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window, W, H)
+
+        # Start the pre-generated welcome immediately after the webcam opens.
+        welcome_started = time.perf_counter()
+        welcome_process = play_welcome_audio(welcome_audio)
+
+        start = time.perf_counter()
+        print("D Draw | V Aspirin | K Capsule | P PPE | T Tablet")
+        print("U Undo | R Redo | C Clear | S Save | E Neon | H Shapes | Q Exit")
+
+        while True:
+            ok, frame = camera.read()
+            if not ok:
+                print("Unable to read webcam frame.")
+                break
+
+            frame = cv2.resize(cv2.flip(frame, 1), (W, H))
+            timestamp_ms = int((time.perf_counter() - start) * 1000)
+            display = app.process(frame, timestamp_ms)
+            # Keep the greeting visible until the welcome voice finishes.
+            welcome_is_playing = (
+                welcome_process is not None and welcome_process.poll() is None
+            )
+            welcome_fallback = (
+                welcome_process is None
+                and time.perf_counter() - welcome_started < 7.0
+            )
+            if welcome_is_playing or welcome_fallback:
+                draw_welcome_overlay(display, time.perf_counter() - welcome_started)
+            cv2.imshow(window, display)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key != 255 and not app.key(key):
+                break
+
+    except KeyboardInterrupt:
+        print("Application interrupted.")
+    except Exception as exc:
+        print(f"PHARMASIGHT ERROR: {type(exc).__name__}: {exc}")
+        raise
+    finally:
+        if camera is not None:
+            camera.release()
+        if app is not None:
+            app.close()
+        cv2.destroyAllWindows()
+        print("PharmaSight AI closed. Webcam released.")
+
+
+if __name__ == "__main__":
+    main()
+
+

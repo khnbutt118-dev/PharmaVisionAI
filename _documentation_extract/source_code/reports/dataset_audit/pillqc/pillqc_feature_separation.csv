@@ -1,0 +1,5 @@
+feature,roc_auc,separation_strength
+center_brightness,0.0954,0.9046
+border_saturation,0.2561,0.7439
+center_saturation,0.7136,0.7136
+border_brightness,0.299,0.701

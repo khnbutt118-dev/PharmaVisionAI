@@ -1,0 +1,5 @@
+# Install only when you reach the relevant phase:
+#   pip install -r requirements-optional.txt
+mediapipe      # Phase 6: hand-gesture landmarks
+pyttsx3        # Phase 6: offline text-to-speech
+ultralytics    # Phase 3: YOLO localization (check its licence before any public/commercial use)

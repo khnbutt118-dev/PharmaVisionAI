@@ -1,0 +1,27 @@
+{
+    "total_images": 970,
+    "sources": {
+        "PharmaVision": 640,
+        "PillQC": 330
+    },
+    "binary_labels": {
+        "defective": 501,
+        "normal": 469
+    },
+    "splits": {
+        "train": 609,
+        "test": 250,
+        "validation": 111
+    },
+    "source_split_counts": {
+        "PharmaVision_test": 200,
+        "PharmaVision_train": 380,
+        "PharmaVision_validation": 60,
+        "PillQC_test": 50,
+        "PillQC_train": 229,
+        "PillQC_validation": 51
+    },
+    "missing_image_paths": 0,
+    "duplicate_manifest_paths": 0,
+    "output_manifest": "datasets\\combined_binary_manifest.csv"
+}

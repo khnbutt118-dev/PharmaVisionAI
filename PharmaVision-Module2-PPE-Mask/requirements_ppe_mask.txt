@@ -1,0 +1,6 @@
+# Mask module only. Your existing environment (Ultralytics, OpenCV, PyTorch) already covers this.
+ultralytics
+opencv-python
+numpy
+pyyaml
+pytest

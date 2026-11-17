@@ -1,0 +1,209 @@
+﻿from pathlib import Path
+import pandas as pd
+import numpy as np
+from PIL import Image, ImageOps, ImageDraw
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, confusion_matrix
+)
+
+ROOT = Path(".")
+MANIFEST = ROOT / "datasets/combined_binary_manifest.csv"
+CHECKPOINT = ROOT / "models/combined_binary/best_model.pth"
+TEST_PREDICTIONS = ROOT / "reports/training/combined_binary/test_predictions.csv"
+OUT = ROOT / "reports/training/combined_binary/diagnostics"
+
+OUT.mkdir(parents=True, exist_ok=True)
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+df = pd.read_csv(MANIFEST)
+val_df = df[df["split"] == "validation"].copy()
+test_df = df[df["split"] == "test"].copy()
+
+# Load the saved combined model.
+checkpoint = torch.load(
+    CHECKPOINT, map_location=DEVICE, weights_only=True
+)
+
+model = models.resnet18(weights=None)
+model.fc = nn.Linear(model.fc.in_features, 2)
+model.load_state_dict(checkpoint["model_state_dict"])
+model.to(DEVICE)
+model.eval()
+
+transform = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
+    ),
+])
+
+def predict_dataframe(frame):
+    rows = []
+
+    with torch.no_grad():
+        for row in frame.itertuples(index=False):
+            path = Path(row.image_path)
+
+            with Image.open(path) as im:
+                image = ImageOps.exif_transpose(im).convert("RGB")
+
+            tensor = transform(image).unsqueeze(0).to(DEVICE)
+            logits = model(tensor)
+            probs = torch.softmax(logits, dim=1)[0].cpu().numpy()
+
+            rows.append({
+                "image_path": str(path),
+                "source": row.source,
+                "actual_label": row.label,
+                "defective_probability": float(probs[1]),
+                "normal_probability": float(probs[0]),
+            })
+
+    return pd.DataFrame(rows)
+
+def metrics(frame, threshold):
+    actual = (frame["actual_label"] == "defective").astype(int)
+    predicted = (
+        frame["defective_probability"] >= threshold
+    ).astype(int)
+
+    tn, fp, fn, tp = confusion_matrix(
+        actual, predicted, labels=[0, 1]
+    ).ravel()
+
+    return {
+        "threshold": threshold,
+        "images": len(frame),
+        "accuracy": accuracy_score(actual, predicted),
+        "defective_precision": precision_score(
+            actual, predicted, zero_division=0
+        ),
+        "defective_recall": recall_score(
+            actual, predicted, zero_division=0
+        ),
+        "macro_f1": f1_score(
+            actual, predicted, average="macro", zero_division=0
+        ),
+        "specificity": tn / (tn + fp) if tn + fp else 0,
+        "false_negatives": int(fn),
+        "false_positives": int(fp),
+    }
+
+print("Evaluating validation images...")
+val_predictions = predict_dataframe(val_df)
+
+threshold_rows = []
+
+for threshold in np.arange(0.20, 0.81, 0.05):
+    threshold = round(float(threshold), 2)
+
+    result = metrics(val_predictions, threshold)
+    result["source"] = "ALL"
+    threshold_rows.append(result)
+
+    for source in sorted(val_predictions["source"].unique()):
+        subset = val_predictions[
+            val_predictions["source"] == source
+        ]
+        result_source = metrics(subset, threshold)
+        result_source["source"] = source
+        threshold_rows.append(result_source)
+
+threshold_report = pd.DataFrame(threshold_rows)
+threshold_path = OUT / "validation_threshold_analysis.csv"
+threshold_report.to_csv(threshold_path, index=False)
+
+print("\n========== VALIDATION THRESHOLD ANALYSIS ==========")
+print(
+    threshold_report[
+        (threshold_report["source"] == "ALL")
+    ].round(3).to_string(index=False)
+)
+
+print("\n========== VALIDATION BY SOURCE AT 0.50 ==========")
+print(
+    threshold_report[
+        threshold_report["threshold"].eq(0.50)
+    ].round(3).to_string(index=False)
+)
+
+# Use the already-generated test predictions only for error inspection.
+if not TEST_PREDICTIONS.exists():
+    raise FileNotFoundError(TEST_PREDICTIONS)
+
+test_predictions = pd.read_csv(TEST_PREDICTIONS)
+
+false_negatives = test_predictions[
+    (test_predictions["actual_label"] == "defective") &
+    (test_predictions["predicted_label"] == "normal")
+].copy()
+
+false_negatives = false_negatives.sort_values(
+    "defective_probability"
+)
+
+false_negative_csv = OUT / "test_false_negatives.csv"
+false_negatives.to_csv(false_negative_csv, index=False)
+
+print("\n========== TEST FALSE NEGATIVES ==========")
+print("Total:", len(false_negatives))
+if "source" in false_negatives.columns:
+    print(false_negatives["source"].value_counts().to_string())
+
+print("\nSaved:", false_negative_csv)
+
+# Build a contact sheet for visual inspection.
+thumb_w, thumb_h = 190, 190
+cell_w, cell_h = 230, 245
+columns = 4
+rows = max(1, (len(false_negatives) + columns - 1) // columns)
+
+sheet = Image.new(
+    "RGB",
+    (columns * cell_w, rows * cell_h),
+    "white"
+)
+draw = ImageDraw.Draw(sheet)
+
+for i, row in enumerate(false_negatives.itertuples(index=False)):
+    path = Path(row.image_path)
+
+    with Image.open(path) as im:
+        image = ImageOps.exif_transpose(im).convert("RGB")
+        image.thumbnail((thumb_w, thumb_h))
+
+    x = (i % columns) * cell_w
+    y = (i // columns) * cell_h
+
+    image_x = x + (cell_w - image.width) // 2
+    sheet.paste(image, (image_x, y + 5))
+
+    source = getattr(row, "source", "Unknown")
+    probability = row.defective_probability
+
+    draw.text(
+        (x + 5, y + 200),
+        f"{i+1}. {source}",
+        fill="black"
+    )
+    draw.text(
+        (x + 5, y + 218),
+        f"Defective probability: {probability:.1%}",
+        fill="black"
+    )
+
+sheet_path = OUT / "test_false_negatives_contact_sheet.jpg"
+sheet.save(sheet_path, quality=95)
+
+print("\n========== DIAGNOSTICS COMPLETE ==========")
+print("Threshold report:", threshold_path)
+print("False-negative CSV:", false_negative_csv)
+print("Contact sheet:", sheet_path)

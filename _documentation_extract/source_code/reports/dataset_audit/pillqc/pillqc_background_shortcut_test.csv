@@ -1,0 +1,4 @@
+feature_set,accuracy_mean,accuracy_std,balanced_accuracy_mean,balanced_accuracy_std
+Background only,0.7091,0.0537,0.7599,0.0543
+Centre only,0.8182,0.0439,0.8375,0.0554
+All four features,0.8091,0.0246,0.836,0.0298

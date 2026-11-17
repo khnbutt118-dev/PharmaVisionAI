@@ -1,0 +1,11 @@
+{
+  "architecture": "resnet18",
+  "checkpoint": "C:\\Users\\AFZAL COMPUTERS\\OneDrive\\Desktop\\PharmaSight-AI-Starter-v2\\PharmaSight-AI\\models\\tablet_classifier\\best_model.pth",
+  "threshold": 0.25,
+  "threshold_selected_on": "validation set only",
+  "test_used_for_model_selection": false,
+  "protocols": [
+    "test_all_images.csv",
+    "test_one_per_confirmed_sample.csv"
+  ]
+}

@@ -1,0 +1,15 @@
+image_path,actual_label,defective_probability,predicted_label,brightness,contrast,saturation,aspect_ratio
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\defective\25.jpeg,defective,0.0001576634094817,normal,138.26172,43.441696,40.116676,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\defective\27.jpeg,defective,0.0200248211622238,normal,100.83862,86.63477,10.130927,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\1.jpeg,normal,0.3689019381999969,defective,120.372154,74.74211,19.445911,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\10.jpeg,normal,0.4069892764091491,defective,120.844315,21.083008,15.201859,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\11.jpeg,normal,0.3868180811405182,defective,122.7272,19.820732,15.390781,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\12.jpeg,normal,0.6044784784317017,defective,96.25411,61.712627,32.318344,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\13.jpeg,normal,0.3426073789596557,defective,105.01693,58.284145,78.55991,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\17.jpeg,normal,0.8680580854415894,defective,124.50972,76.44415,38.08264,1.450261780104712
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\18.jpeg,normal,0.9003542065620422,defective,76.118034,73.05577,21.335554,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\20.jpeg,normal,0.395358681678772,defective,128.46584,24.693502,31.970932,0.5622317596566524
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\21.jpeg,normal,0.3140902519226074,defective,97.08978,81.83524,33.20815,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\26.jpeg,normal,0.736242949962616,defective,118.51263,51.512268,35.460125,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\6.jpeg,normal,0.8717533349990845,defective,135.73706,16.115112,24.805902,1.0
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\validation\normal\8.jpeg,normal,0.5041080713272095,defective,89.97617,76.1051,26.525396,1.0

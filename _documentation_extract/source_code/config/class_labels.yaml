@@ -1,0 +1,15 @@
+tablet_binary:
+  normal: "No visible defect identified in the supplied image"
+  defective: "One or more visible abnormalities; subtype requires supported labels"
+tablet_defect_types:
+  - normal
+  - chipping
+  - cracking
+  - capping
+  - contamination
+blister:
+  - occupied_cavity
+  - empty_cavity
+ppe:
+  - mask_present
+  - mask_absent

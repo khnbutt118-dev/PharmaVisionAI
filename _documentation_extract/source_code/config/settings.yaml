@@ -1,0 +1,9 @@
+project_name: PharmaSight AI
+random_seed: 42
+image_extensions: [".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"]
+tablet:
+  initial_task: binary_classification
+  classes: ["normal", "defective"]
+  review_state: "uncertain_manual_review"
+  image_size: 224
+  validation_strategy: "source_or_sample_separated"

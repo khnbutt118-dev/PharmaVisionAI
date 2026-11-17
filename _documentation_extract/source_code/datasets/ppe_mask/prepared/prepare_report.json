@@ -1,0 +1,32 @@
+{
+  "skipped_missing_image": 0,
+  "skipped_unreadable_image": 0,
+  "skipped_unknown_class_objects": 0,
+  "skipped_degenerate_boxes": 3,
+  "duplicate_images_dropped": 5,
+  "images_without_objects": 0,
+  "seed": 42,
+  "images_used": 848,
+  "split_counts": {
+    "train": {
+      "images": 594,
+      "with_mask": 2286,
+      "without_mask": 541,
+      "mask_weared_incorrect": 82
+    },
+    "val": {
+      "images": 127,
+      "with_mask": 441,
+      "without_mask": 91,
+      "mask_weared_incorrect": 20
+    },
+    "test": {
+      "images": 127,
+      "with_mask": 454,
+      "without_mask": 84,
+      "mask_weared_incorrect": 19
+    }
+  },
+  "webcam_images_added_to_train": 0,
+  "note": "Random image-level split of a public dataset; near-duplicates and same-scene images may still leak across splits."
+}

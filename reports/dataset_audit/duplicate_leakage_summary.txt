@@ -1,0 +1,24 @@
+PHARMASIGHT AI - DUPLICATE LEAKAGE AUDIT
+=======================================================
+Total candidate pairs: 227
+Same physical image: 40
+Different images: 187
+Uncertain: 0
+Possible label errors: 0
+
+Same-image pairs crossing splits: 0
+Same-image pairs crossing labels: 0
+All pairs crossing splits: 55
+All pairs crossing labels: 94
+
+SAME-IMAGE PAIRS CROSSING SPLITS:
+None found.
+
+SAME-IMAGE PAIRS CROSSING LABELS:
+None found.
+
+IMPORTANT:
+This report does not modify or move images.
+Pair matches are based on the gallery's original numbering.
+Review physical-sample grouping before changing dataset splits.
+Unknown metadata must be resolved before model training.

@@ -1,0 +1,30 @@
+PHARMASIGHT AI - LEAKAGE-AWARE EVALUATION PREPARATION
+==========================================================
+Total manifest images: 640
+Total confirmed physical groups: 31
+Total test images: 200
+Confirmed physical groups in test: 2
+Test images without confirmed sample IDs: 196
+Test representatives retained: 2
+Confirmed repeated test images excluded from secondary set: 2
+Full test set size: 200
+Sample-aware test set size: 198
+
+FULL TEST CLASS COUNTS:
+{'defective': 100, 'normal': 100}
+
+SAMPLE-AWARE TEST CLASS COUNTS:
+{'defective': 100, 'normal': 98}
+
+FILES CREATED:
+test_all_images.csv
+test_one_per_confirmed_sample.csv
+test_confirmed_repeats_excluded.csv (if applicable)
+
+IMPORTANT:
+No source images were deleted, moved, or modified.
+The original train/validation/test assignments were not changed.
+The sample-aware set removes only confirmed repeated images within test.
+Unconfirmed physical identities remain included.
+This is a secondary sensitivity evaluation, not proof that all remaining
+images represent independent physical tablets.

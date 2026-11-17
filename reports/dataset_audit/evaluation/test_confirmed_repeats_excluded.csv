@@ -1,0 +1,3 @@
+﻿image_path,task,source,dataset,physical_sample_id,capture_session,split,label,defect_type,licence,notes
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\test\normal\29.jpeg,tablet,PharmaVision,,PV_SAMPLE_001,,test,normal,none,CC BY-SA 4.0,"Review label, source, permissions and sample identity manually.; split and label derived from PharmaVision folder path; verify with dataset documentation"
+datasets\raw\tablet_defects\PharmaVision\PharmaVision dataset\test\normal\88.jpeg,tablet,PharmaVision,,PV_SAMPLE_002,,test,normal,none,CC BY-SA 4.0,"Review label, source, permissions and sample identity manually.; split and label derived from PharmaVision folder path; verify with dataset documentation"
