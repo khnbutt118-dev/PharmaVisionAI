@@ -1,93 +1,112 @@
-<p align="center"><img src="https://raw.githubusercontent.com/khnbutt118-dev/PharmaVisionAI/main/assets/pharmavision-banner.svg" alt="PharmaVision AI — Pharmaceutical Quality Intelligence" width="100%"></p>
-
-<p align="center"><a href="https://github.com/khnbutt118-dev">← Back to GitHub profile</a> · <a href="https://hassanbuttportfolio.vercel.app/">Portfolio</a> · <a href="https://www.linkedin.com/in/hassan-butt-ab0036334/">LinkedIn</a></p>
-
----
+<p align="center"><img src="https://raw.githubusercontent.com/khnbutt118-dev/PharmaVisionAI/main/assets/pharmavision-banner.svg" width="100%" alt="PharmaVision AI — Pharmaceutical Quality Intelligence"></p>
+<p align="center">
+  <a href="https://github.com/khnbutt118-dev"><img src="https://img.shields.io/badge/Creator-Hassan%20Butt-087EAD?style=for-the-badge&logo=github"></a>
+  <img src="https://img.shields.io/badge/Domain-Pharmaceutical%20AI-155E9A?style=for-the-badge">
+  <img src="https://img.shields.io/badge/Status-Phased%20Prototype-0B719E?style=for-the-badge">
+</p>
+<p align="center"><a href="https://github.com/khnbutt118-dev">Profile</a> · <a href="https://hassanbuttportfolio.vercel.app/">Portfolio</a> · <a href="https://www.linkedin.com/in/hassan-butt-ab0036334/">LinkedIn</a></p>
 
 # PharmaSight AI
-**Real-Time Pharmaceutical Quality & GMP Intelligence System**  
-Research and decision-support prototype — not a GMP-validated inspection system.
+### A modular computer-vision foundation for pharmaceutical quality workflows
 
-## What this repository provides
-A phased, modular foundation for:
-1. Tablet appearance inspection (first modelling target)
-2. Blister-pack completeness inspection
-3. Visible PPE monitoring
-4. Gesture-based interaction
-5. Voice alerts and QA-oriented inspection records
+> **Research and decision-support prototype.** This repository is a phased starter scaffold; it is not a GMP-validated inspection system and does not make batch-release decisions.
 
-The modules are separate specialist pipelines connected by one application. Do not train one model to perform all tasks.
+<table>
+<tr>
+<td align="center" width="25%"><h2>💊</h2><b>Tablet QA</b><br><sub>Appearance inspection foundation</sub></td>
+<td align="center" width="25%"><h2>📦</h2><b>Blister checks</b><br><sub>Completeness roadmap</sub></td>
+<td align="center" width="25%"><h2>🥼</h2><b>PPE monitoring</b><br><sub>Visible compliance signals</sub></td>
+<td align="center" width="25%"><h2>🖐️</h2><b>Interaction</b><br><sub>Gesture and voice roadmap</sub></td>
+</tr>
+</table>
 
-## Start here
-1. Extract this ZIP.
-2. Open the `PharmaSight-AI` folder in VS Code.
-3. Follow [`docs/PHASE_1_CHECKLIST.md`](docs/PHASE_1_CHECKLIST.md).
-4. Put downloaded data in the matching `datasets/raw/...` folder. Keep each source in its own subfolder.
-5. Run the audit scripts before training anything.
+## 🧭 Project map
 
-### Windows PowerShell setup
+| Module | Purpose | Current position |
+|:--|:--|:--|
+| Tablet appearance | Foundation for tablet-defect inspection | Phase 1 data audit / modelling target |
+| Blister completeness | Explore missing or damaged units | Planned phase |
+| PPE monitoring | Monitor visible PPE indicators | Planned module |
+| Gesture interface | Hands-free interaction | Planned module |
+| Voice alerts & QA records | Spoken alerts and inspection records | Planned module |
+
+## ⚡ Get started
+
+<details open>
+<summary><b>1 · Set up on Windows</b></summary>
+
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
-Optional packages for later phases (gestures, voice, YOLO) are in `requirements-optional.txt`; install them only when you reach those phases.
+Optional packages for later phases (gestures, voice, YOLO) are listed in `requirements-optional.txt`. Install them only when needed.
+</details>
 
-If activation is blocked in the current terminal:
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
-For PyTorch, select the appropriate CPU/CUDA install command from the official PyTorch installation selector if the default install is unsuitable for your machine.
+<details>
+<summary><b>2 · Run the first checks</b></summary>
 
-### First checks
 ```powershell
 python -c "import torch, cv2; print('PyTorch:', torch.__version__); print('CUDA:', torch.cuda.is_available()); print('OpenCV:', cv2.__version__)"
 python webcam_test.py
+python -m pytest
 ```
-Launch the placeholder dashboard with `streamlit run app.py`. Press `Q` to close the webcam window. Webcam access may require closing other camera applications and granting Windows camera permission.
+Launch the placeholder dashboard with `streamlit run app.py`.
+</details>
 
-## Dataset placement
+<details>
+<summary><b>3 · Organise the datasets</b></summary>
+
 ```text
 datasets/
 ├── raw/
 │   ├── tablet_defects/
-│   │   ├── source_name_1/
-│   │   └── source_name_2/
 │   ├── blister_packs/
-│   │   └── source_name/
 │   └── ppe/
-│       └── source_name/
-├── processed/                 # generated outputs; do not edit manually
-└── dataset_manifest.csv       # generated/maintained inventory
+├── processed/
+└── dataset_manifest.csv
 ```
-Keep original downloads unchanged in `raw`. Unzip each dataset into its own named source folder. Do not mix classes from different sources until labels, licensing, and annotation compatibility have been audited.
+Keep original downloads unchanged in `raw`, with each dataset in its own source folder. Check licensing, labels and annotation compatibility before combining sources.
+</details>
 
-## Phase 1 audit commands
+## 🔬 Phase 1 · Data quality toolkit
+
+| Command | What it checks |
+|:--|:--|
+| `validate_images` | Image validity and readability |
+| `build_manifest` | Creates a dataset inventory |
+| `find_duplicates` | Flags exact / near-duplicate candidates |
+| `suggest_labels` | Creates label suggestions for manual review |
+
 ```powershell
 python -m src.data.validate_images --root datasets/raw/tablet_defects --recursive
 python -m src.data.build_manifest --root datasets/raw/tablet_defects --output datasets/dataset_manifest.csv --task tablet
 python -m src.data.find_duplicates --root datasets/raw/tablet_defects
 python -m src.data.suggest_labels
 ```
-The manifest is an inventory, not a verified ground-truth label file. Review `label`, `defect_type`, `licence`, and `split` fields before training. The manifest builder deliberately leaves labels empty. `suggest_labels` writes *suggestions* derived from folder names to a separate file (`datasets/label_suggestions.csv`) to speed up manual review; it never edits the manifest and its output must be checked against each dataset's documentation.
-`find_duplicates` lists exact and near-duplicate candidate pairs (flagging pairs that cross source folders) in `reports/dataset_audit/duplicate_candidates.csv`; review them visually before changing anything.
 
-Run the tests with `python -m pytest`.
+<blockquote>Manifest labels are intentionally left empty. Suggested labels are not ground truth; manually verify them against each dataset's documentation. Review duplicate candidates visually before removing or changing data.</blockquote>
 
-## Current status
-- Project scaffold and Phase 1 utilities: included.
-- Real datasets: **not included**; obtain them from their original sources and check licence/terms.
-- Trained model weights: **not included**.
-- Empirical model performance: **not available until data is supplied and experiments are run**.
+## 🛡️ Validation principles
 
-## Research safeguards
-- Use source-, batch-, physical-sample-, or capture-session-separated splits where possible. Avoid near-duplicate leakage.
-- Hold out at least one source/session for external testing.
-- Report sensitivity/recall for defective samples, false-pass rate, precision, specificity, per-class F1, confusion matrix, and latency.
-- Use an `uncertain / manual review` state. A low-confidence prediction is not a pass.
-- Image predictions do not establish manufacturing root cause.
-- A prototype does not replace qualified human inspection, AQL sampling, SOPs, or batch-release decisions.
+<table>
+<tr><td>🧪 <b>Leakage control</b></td><td>Prefer source-, batch-, sample- or capture-session-separated splits; hold out a source/session for external testing.</td></tr>
+<tr><td>📉 <b>Safety-sensitive metrics</b></td><td>Report defective-sample recall, false-pass rate, precision, specificity, per-class F1, confusion matrix and latency.</td></tr>
+<tr><td>👩‍🔬 <b>Human review</b></td><td>Low confidence should lead to an uncertain/manual-review state, never an automatic pass.</td></tr>
+<tr><td>🏭 <b>Scope boundary</b></td><td>Predictions do not establish manufacturing root cause and cannot replace qualified inspection, AQL sampling, SOPs or batch release.</td></tr>
+</table>
 
-See `docs/` for the data protocol, validation plan, project scope, and phased roadmap.
+## 📍 Current project status
+
+<p>
+<img src="https://img.shields.io/badge/Scaffold-Included-087EAD?style=flat-square">
+<img src="https://img.shields.io/badge/Real%20datasets-Not%20included-64748b?style=flat-square">
+<img src="https://img.shields.io/badge/Trained%20weights-Not%20included-64748b?style=flat-square">
+<img src="https://img.shields.io/badge/Performance-Not%20yet%20reported-64748b?style=flat-square">
+</p>
+
+See `docs/` for the data protocol, validation plan, project scope and phased roadmap.
+
+---
+<p align="center"><sub>Built at the intersection of pharmaceutical science, computer vision and responsible AI.</sub></p>
